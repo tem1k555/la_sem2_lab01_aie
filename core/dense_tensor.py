@@ -113,16 +113,9 @@ class DenseTensor:
         return DenseTensor(shape, data)
 
     @staticmethod
-    def from_nested_list(nested: list) -> DenseTensor:
-        """
-        Создаёт тензор из вложенного списка Python.
-        Автоматически определяет shape.
-
-        Args:
-            nested: список
-        """
+    def from_nested_list(nested) -> DenseTensor:
         def get_shape(lst):
-            if not isinstance(lst, list):
+            if not isinstance(lst, (list, tuple)):
                 return ()
             if not lst:
                 return (0,)
@@ -132,26 +125,24 @@ class DenseTensor:
         def flatten(lst):
             result = []
             for item in lst:
-                if isinstance(item, list):
+                if isinstance(item, (list, tuple)):
                     result.extend(flatten(item))
                 else:
                     result.append(float(item))
             return result
         
-        shape = get_shape(nested)
-        # Проверяем, что все подсписки имеют одинаковую форму
         def check_shape(lst, expected_shape, depth):
             if depth >= len(expected_shape):
                 return
-            if not isinstance(lst, list):
+            if not isinstance(lst, (list, tuple)):
                 raise ValueError("Inconsistent nested list structure")
             if len(lst) != expected_shape[depth]:
                 raise ValueError("Inconsistent nested list structure")
             for item in lst:
                 check_shape(item, expected_shape, depth + 1)
         
+        shape = get_shape(nested)
         check_shape(nested, shape, 0)
-        
         data = flatten(nested)
         return DenseTensor(shape, data)
 
