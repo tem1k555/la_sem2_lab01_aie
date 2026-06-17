@@ -52,7 +52,10 @@ class TTTensor:
             raise ValueError(f"Ranks must start and end with 1, got {self.ranks}")
 
     @staticmethod
-    def random(shape: tuple[int, ...] | list[int], ranks: tuple[int, ...] | list[int], seed: int | None = None) -> TTTensor:
+    def random(shape, ranks, seed=None):
+        """
+        Создаёт случайный TT-тензор с заданными рангами.
+        """
         import random
         
         if seed is not None:
@@ -85,7 +88,7 @@ class TTTensor:
         
         return TTTensor(cores)
 
-    def get_element(self, indices: tuple[int, ...] | list[int]) -> float:
+    def get_element(self, indices):
         if len(indices) != self.order:
             raise ValueError(f"Expected {self.order} indices, got {len(indices)}")
         
@@ -108,7 +111,7 @@ class TTTensor:
         
         return left_vector[0, 0]
 
-    def full(self) -> DenseTensor:
+    def full(self):
         first_core = self.cores[0]
         result = first_core.reshape((first_core.shape[1], first_core.shape[2]))
         
@@ -126,23 +129,23 @@ class TTTensor:
         
         return result.reshape(self.shape)
 
-    def core_sizes(self) -> list[tuple[int, ...]]:
+    def core_sizes(self):
         return [core.shape for core in self.cores]
 
-    def total_storage(self) -> int:
+    def total_storage(self):
         return sum(core.size for core in self.cores)
 
-    def compression_ratio(self) -> float:
+    def compression_ratio(self):
         full_size = compute_size(self.shape)
         tt_size = self.total_storage()
         if tt_size == 0:
             return float('inf')
         return full_size / tt_size
 
-    def copy(self) -> TTTensor:
+    def copy(self):
         return TTTensor([core.copy() for core in self.cores])
 
-    def __repr__(self) -> str:
+    def __repr__(self):
         lines = [
             f"TTTensor(order={self.order}, shape={self.shape})",
             f"  ranks: {self.ranks}",
@@ -152,5 +155,5 @@ class TTTensor:
         ]
         return "\n".join(lines)
 
-    def __str__(self) -> str:
+    def __str__(self):
         return self.__repr__()
