@@ -17,9 +17,7 @@ def tt_add(
     tt2: TTTensor,
     backend: BackendInterface
 ) -> TTTensor:
-    """
-    Поэлементное сложение двух TT-тензоров.
-    """
+    """Поэлементное сложение двух TT-тензоров."""
     if tt1.shape != tt2.shape:
         raise ValueError(f"Shapes must match: {tt1.shape} vs {tt2.shape}")
     
@@ -112,10 +110,7 @@ def tt_hadamard(
     tt2: TTTensor,
     backend: BackendInterface
 ) -> TTTensor:
-    """
-    Поэлементное произведение (Адамара).
-    G_k^C[i] = G_k^A[i] ⊗ G_k^B[i]
-    """
+    """Поэлементное произведение (Адамара). G_k^C[i] = G_k^A[i] ⊗ G_k^B[i]"""
     if tt1.shape != tt2.shape:
         raise ValueError(f"Shapes must match: {tt1.shape} vs {tt2.shape}")
     

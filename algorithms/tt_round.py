@@ -27,7 +27,7 @@ def tt_round(
     cores = [core.copy() for core in tt_right.cores]
     d = tt.order
     
-    # Норма первого ядра (вся норма в нём после right_canonicalize)
+    # Норма первого ядра
     norm_first = cores[0].norm()
     
     if norm_first < 1e-30:
@@ -46,7 +46,7 @@ def tt_round(
     # 2. Левый проход: SVD-усечение
     for k in range(d - 1):
         core = cores[k]
-        r_prev_core, n_k, r_next_core = core.shape
+        _, n_k, r_next_core = core.shape
         
         # Разворачиваем в матрицу (r_prev * n_k) x r_next
         G = core.reshape([r_prev * n_k, r_next_core])
@@ -80,28 +80,15 @@ def tt_round(
         next_core = cores[k + 1]
         r_prev_next, n_next, r_next_next = next_core.shape
         
-        # absorbed имеет размер (new_rank, n_next * r_next_next)
         # Перестраиваем absorbed в (new_rank, n_next, r_next_next)
-        if absorbed.size == new_rank * n_next * r_next_next:
-            absorbed_reshaped = absorbed.reshape([new_rank, n_next, r_next_next])
+        total_needed = new_rank * n_next * r_next_next
+        if absorbed.size < total_needed:
+            flat_data = absorbed.data + [0.0] * (total_needed - absorbed.size)
         else:
-            # Если размерности не совпадают, нужно перестроить
-            # Создаём новый тензор
-            absorbed_flat = absorbed.data
-            new_absorbed_data = []
-            for i in range(new_rank):
-                for j in range(n_next):
-                    for q in range(r_next_next):
-                        idx = i * n_next * r_next_next + j * r_next_next + q
-                        if idx < len(absorbed_flat):
-                            new_absorbed_data.append(absorbed_flat[idx])
-                        else:
-                            new_absorbed_data.append(0.0)
-            absorbed_reshaped = DenseTensor([new_rank, n_next, r_next_next], new_absorbed_data)
+            flat_data = absorbed.data[:total_needed]
+        absorbed_reshaped = DenseTensor([new_rank, n_next, r_next_next], flat_data)
         
-        # Умножаем absorbed_reshaped на next_core по первой моде
         # G_{k+1}[i] = absorbed_reshaped[:, i, :] @ G_{k+1}[i]
-        # Но на самом деле: new_next_core = absorbed_reshaped * next_core (свёртка по r_prev)
         new_next_data = []
         for i in range(n_next):
             for p in range(new_rank):
