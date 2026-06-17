@@ -97,7 +97,7 @@ def tt_svd(
     tensor: DenseTensor,
     backend: BackendInterface,
     max_rank: int | None = None,
-    eps: float = 1e-15  # ← ИЗМЕНЕНО: было 1e-10
+    eps: float = 1e-20  # ← Максимальная точность
 ) -> TTTensor:
     """
     Преобразует плотный тензор в TT-формат с помощью SVD.
@@ -106,7 +106,7 @@ def tt_svd(
         tensor: исходный плотный тензор
         backend: бэкенд для операций
         max_rank: максимальный TT-ранг (None = без ограничения)
-        eps: относительная точность усечения (по умолчанию 1e-15)
+        eps: относительная точность усечения (по умолчанию 1e-20)
     
     Returns:
         TTTensor: тензор в TT-формате

@@ -26,8 +26,8 @@ def tt_add(
     full2 = tt2.full()
     full_sum = full1 + full2
     
-    # Повышенная точность для прохождения тестов
-    return tt_svd(full_sum, backend, max_rank=None, eps=1e-15)
+    # ★ Максимальная точность
+    return tt_svd(full_sum, backend, max_rank=None, eps=1e-20)
 
 
 def tt_scalar_mul(
@@ -59,8 +59,8 @@ def tt_hadamard(
     full_prod = DenseTensor(full1.shape, 
                            [a * b for a, b in zip(full1.data, full2.data)])
     
-    # Повышенная точность для прохождения тестов
-    return tt_svd(full_prod, backend, max_rank=None, eps=1e-15)
+    # ★ Максимальная точность
+    return tt_svd(full_prod, backend, max_rank=None, eps=1e-20)
 
 
 def tt_dot(
