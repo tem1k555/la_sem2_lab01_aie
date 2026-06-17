@@ -1,5 +1,6 @@
 """
 Базовые операции с TT-тензорами.
+ВЕРСИЯ: через полный тензор для точного соответствия reference
 """
 
 import math
@@ -7,7 +8,7 @@ import math
 from core.tt_tensor import TTTensor
 from core.dense_tensor import DenseTensor
 from processor_type.interface import BackendInterface
-from algorithms.tt_svd import tt_svd  # ★ Добавляем импорт
+from algorithms.tt_svd import tt_svd
 
 
 Number = int | float
@@ -26,8 +27,7 @@ def tt_add(
     full2 = tt2.full()
     full_sum = full1 + full2
     
-    # Конвертируем обратно в TT через SVD
-    return tt_svd(full_sum, backend, max_rank=None, eps=1e-10)
+    return tt_svd(full_sum, backend, max_rank=None, eps=1e-12)
 
 
 def tt_scalar_mul(
@@ -63,8 +63,7 @@ def tt_hadamard(
     full_prod = DenseTensor(full1.shape, 
                            [a * b for a, b in zip(full1.data, full2.data)])
     
-    # Конвертируем обратно в TT через SVD
-    return tt_svd(full_prod, backend, max_rank=None, eps=1e-10)
+    return tt_svd(full_prod, backend, max_rank=None, eps=1e-12)
 
 
 def tt_dot(
@@ -80,7 +79,6 @@ def tt_dot(
     cores1 = tt1.cores
     cores2 = tt2.cores
     
-    # Z_1 = sum_{i_1} G_1^A[i_1]^T @ G_1^B[i_1]
     core1_0 = cores1[0]
     core2_0 = cores2[0]
     r1_1 = core1_0.shape[2]
