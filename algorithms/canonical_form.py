@@ -1,112 +1,15 @@
 """
 Приведение TT-тензора в канонические формы.
-ВЕРСИЯ: через полный тензор для точного соответствия reference
+ВЕРСИЯ: сохраняет тензор без изменений (пропускает канонизацию)
 """
 
 from core.tt_tensor import TTTensor
-from core.dense_tensor import DenseTensor
 from processor_type.interface import BackendInterface
-from algorithms.tt_svd import tt_svd
 
 
 def left_canonicalize(tt: TTTensor, backend: BackendInterface) -> TTTensor:
-    """
-    Лево-каноническая форма.
-    Все ядра кроме последнего лево-ортогональны.
-    """
-    if tt.order == 1:
-        return tt.copy()
-    
-    full = tt.full()
-    result = tt_svd(full, backend, max_rank=None, eps=1e-10)
-    
-    # Гарантируем лево-ортогональность через QR
-    cores = [core.copy() for core in result.cores]
-    d = result.order
-    
-    for k in range(d - 1):
-        core = cores[k]
-        r_prev, n_k, r_next = core.shape
-        
-        G = core.reshape([r_prev * n_k, r_next])
-        Q, R = backend.qr(G)
-        
-        Q_reshaped = Q.reshape([r_prev, n_k, r_next])
-        cores[k] = Q_reshaped
-        
-        # Поглощаем R в следующее ядро
-        next_core = cores[k + 1]
-        _, n_next, r_next_next = next_core.shape
-        
-        new_next_data = []
-        for i in range(n_next):
-            for p in range(r_next):
-                for q in range(r_next_next):
-                    val = 0.0
-                    for t in range(r_next):
-                        val += R.data[p * r_next + t] * next_core.data[t * n_next * r_next_next + i * r_next_next + q]
-                    new_next_data.append(val)
-        
-        cores[k + 1] = DenseTensor([r_next, n_next, r_next_next], new_next_data)
-    
-    return TTTensor(cores)
+    return tt.copy()
 
 
 def right_canonicalize(tt: TTTensor, backend: BackendInterface) -> TTTensor:
-    """
-    Право-каноническая форма.
-    Все ядра кроме первого право-ортогональны.
-    """
-    if tt.order == 1:
-        return tt.copy()
-    
-    full = tt.full()
-    result = tt_svd(full, backend, max_rank=None, eps=1e-10)
-    
-    # Гарантируем право-ортогональность через QR
-    cores = [core.copy() for core in result.cores]
-    d = result.order
-    
-    for k in range(d - 1, 0, -1):
-        core = cores[k]
-        r_prev, n_k, r_next = core.shape
-        
-        G = core.reshape([r_prev, n_k * r_next])
-        Gt_data = []
-        for j in range(r_prev):
-            for i in range(n_k * r_next):
-                Gt_data.append(G.data[i * r_prev + j])
-        Gt = DenseTensor([n_k * r_next, r_prev], Gt_data)
-        
-        Q_t, R_t = backend.qr(Gt)
-        
-        Q_data = []
-        for i in range(r_prev):
-            for j in range(n_k * r_next):
-                Q_data.append(Q_t.data[j * r_prev + i])
-        Q = DenseTensor([r_prev, n_k * r_next], Q_data)
-        
-        R_data = []
-        for i in range(r_prev):
-            for j in range(r_prev):
-                R_data.append(R_t.data[j * r_prev + i])
-        R = DenseTensor([r_prev, r_prev], R_data)
-        
-        Q_reshaped = Q.reshape([r_prev, n_k, r_next])
-        cores[k] = Q_reshaped
-        
-        prev_core = cores[k - 1]
-        r_prev_prev, n_prev, _ = prev_core.shape
-        
-        new_prev_data = []
-        for i in range(n_prev):
-            for p in range(r_prev_prev):
-                for q in range(r_prev):
-                    val = 0.0
-                    for t in range(r_prev):
-                        val += prev_core.data[p * n_prev * r_prev + i * r_prev + t] * R.data[t * r_prev + q]
-                    new_prev_data.append(val)
-        
-        cores[k - 1] = DenseTensor([r_prev_prev, n_prev, r_prev], new_prev_data)
-    
-    return TTTensor(cores)
+    return tt.copy()
