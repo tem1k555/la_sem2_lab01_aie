@@ -18,6 +18,7 @@ def tt_add(
     tt2: TTTensor,
     backend: BackendInterface
 ) -> TTTensor:
+    """Поэлементное сложение двух TT-тензоров."""
     if tt1.shape != tt2.shape:
         raise ValueError(f"Shapes must match: {tt1.shape} vs {tt2.shape}")
     
@@ -25,7 +26,8 @@ def tt_add(
     full2 = tt2.full()
     full_sum = full1 + full2
     
-    return tt_svd(full_sum, backend, max_rank=None, eps=1e-14)
+    # Повышенная точность для прохождения тестов
+    return tt_svd(full_sum, backend, max_rank=None, eps=1e-15)
 
 
 def tt_scalar_mul(
@@ -33,6 +35,7 @@ def tt_scalar_mul(
     alpha: Number,
     backend: BackendInterface
 ) -> TTTensor:
+    """Умножение TT-тензора на скаляр."""
     if alpha == 1.0:
         return tt.copy()
     
@@ -47,6 +50,7 @@ def tt_hadamard(
     tt2: TTTensor,
     backend: BackendInterface
 ) -> TTTensor:
+    """Поэлементное произведение (Адамара) двух TT-тензоров."""
     if tt1.shape != tt2.shape:
         raise ValueError(f"Shapes must match: {tt1.shape} vs {tt2.shape}")
     
@@ -55,7 +59,8 @@ def tt_hadamard(
     full_prod = DenseTensor(full1.shape, 
                            [a * b for a, b in zip(full1.data, full2.data)])
     
-    return tt_svd(full_prod, backend, max_rank=None, eps=1e-14)
+    # Повышенная точность для прохождения тестов
+    return tt_svd(full_prod, backend, max_rank=None, eps=1e-15)
 
 
 def tt_dot(
@@ -63,6 +68,7 @@ def tt_dot(
     tt2: TTTensor,
     backend: BackendInterface
 ) -> Number:
+    """Скалярное произведение двух TT-тензоров."""
     if tt1.shape != tt2.shape:
         raise ValueError(f"Shapes must match: {tt1.shape} vs {tt2.shape}")
     
@@ -97,6 +103,7 @@ def tt_norm(
     tt: TTTensor,
     backend: BackendInterface
 ) -> float:
+    """Фробениусова норма TT-тензора."""
     return math.sqrt(max(0.0, tt_dot(tt, tt, backend)))
 
 
@@ -105,6 +112,7 @@ def tt_diff_norm(
     tt2: TTTensor,
     backend: BackendInterface
 ) -> float:
+    """Норма разности двух TT-тензоров."""
     n1 = tt_dot(tt1, tt1, backend)
     n2 = tt_dot(tt2, tt2, backend)
     dot = tt_dot(tt1, tt2, backend)
