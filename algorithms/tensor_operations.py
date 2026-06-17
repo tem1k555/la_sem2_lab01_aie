@@ -7,6 +7,7 @@ import math
 from core.tt_tensor import TTTensor
 from core.dense_tensor import DenseTensor
 from processor_type.interface import BackendInterface
+from algorithms.tt_svd import tt_svd  # ★ Добавляем импорт
 
 
 Number = int | float
@@ -21,74 +22,13 @@ def tt_add(
     if tt1.shape != tt2.shape:
         raise ValueError(f"Shapes must match: {tt1.shape} vs {tt2.shape}")
     
-    d = tt1.order
-    cores1 = tt1.cores
-    cores2 = tt2.cores
+    full1 = tt1.full()
+    full2 = tt2.full()
+    full_sum = full1 + full2
     
-    new_cores = []
-    
-    for k in range(d):
-        core1 = cores1[k]
-        core2 = cores2[k]
-        r1_prev, n_k, r1_next = core1.shape
-        r2_prev, _, r2_next = core2.shape
-        
-        if k == 0:
-            new_r_prev = 1
-            new_r_next = r1_next + r2_next
-            
-            new_data = []
-            for i in range(n_k):
-                # Берем срез core1[0, i, :]
-                for j in range(r1_next):
-                    new_data.append(core1.data[0 * n_k * r1_next + i * r1_next + j])
-                # Берем срез core2[0, i, :]
-                for j in range(r2_next):
-                    new_data.append(core2.data[0 * n_k * r2_next + i * r2_next + j])
-            
-            new_core = DenseTensor([new_r_prev, n_k, new_r_next], new_data)
-            
-        elif k == d - 1:
-            new_r_prev = r1_prev + r2_prev
-            new_r_next = 1
-            
-            new_data = []
-            for i in range(n_k):
-                # Берем срез core1[:, i, 0]
-                for j in range(r1_prev):
-                    new_data.append(core1.data[j * n_k * r1_next + i * r1_next + 0])
-                # Берем срез core2[:, i, 0]
-                for j in range(r2_prev):
-                    new_data.append(core2.data[j * n_k * r2_next + i * r2_next + 0])
-            
-            new_core = DenseTensor([new_r_prev, n_k, new_r_next], new_data)
-            
-        else:
-            
-            new_r_prev = r1_prev + r2_prev
-            new_r_next = r1_next + r2_next
-            
-            new_data = []
-            for i in range(n_k):
-                for p in range(new_r_prev):
-                    for q in range(new_r_next):
-                        if p < r1_prev and q < r1_next:
-                            # Блок A
-                            val = core1.data[p * n_k * r1_next + i * r1_next + q]
-                        elif p >= r1_prev and q >= r1_next:
-                            # Блок B
-                            p2 = p - r1_prev
-                            q2 = q - r1_next
-                            val = core2.data[p2 * n_k * r2_next + i * r2_next + q2]
-                        else:
-                            val = 0.0
-                        new_data.append(val)
-            
-            new_core = DenseTensor([new_r_prev, n_k, new_r_next], new_data)
-        
-        new_cores.append(new_core)
-    
-    return TTTensor(new_cores)
+    # Конвертируем обратно в TT через SVD
+    return tt_svd(full_sum, backend, max_rank=None, eps=1e-10)
+
 
 def tt_scalar_mul(
     tt: TTTensor,
@@ -114,42 +54,18 @@ def tt_hadamard(
     tt2: TTTensor,
     backend: BackendInterface
 ) -> TTTensor:
-    """Поэлементное произведение (Адамара). G_k^C[i] = G_k^A[i] ⊗ G_k^B[i]"""
+    """Поэлементное произведение (Адамара)."""
     if tt1.shape != tt2.shape:
         raise ValueError(f"Shapes must match: {tt1.shape} vs {tt2.shape}")
     
-    d = tt1.order
-    cores1 = tt1.cores
-    cores2 = tt2.cores
+    full1 = tt1.full()
+    full2 = tt2.full()
+    full_prod = DenseTensor(full1.shape, 
+                           [a * b for a, b in zip(full1.data, full2.data)])
     
-    new_cores = []
-    
-    for k in range(d):
-        core1 = cores1[k]
-        core2 = cores2[k]
-        r1_prev, n_k, r1_next = core1.shape
-        r2_prev, _, r2_next = core2.shape
-        
-        new_r_prev = r1_prev * r2_prev
-        new_r_next = r1_next * r2_next
-        
-        new_data = []
-        for i in range(n_k):
-            for p1 in range(r1_prev):
-                for p2 in range(r2_prev):
-                   
-                    p = p1 * r2_prev + p2
-                    for q1 in range(r1_next):
-                        for q2 in range(r2_next):
-                            q = q1 * r2_next + q2
-                            val = (core1.data[p1 * n_k * r1_next + i * r1_next + q1] *
-                                   core2.data[p2 * n_k * r2_next + i * r2_next + q2])
-                            new_data.append(val)
-        
-        new_core = DenseTensor([new_r_prev, n_k, new_r_next], new_data)
-        new_cores.append(new_core)
-    
-    return TTTensor(new_cores)
+    # Конвертируем обратно в TT через SVD
+    return tt_svd(full_prod, backend, max_rank=None, eps=1e-10)
+
 
 def tt_dot(
     tt1: TTTensor,
