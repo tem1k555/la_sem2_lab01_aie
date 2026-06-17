@@ -34,35 +34,37 @@ def tt_add(
         r2_prev, _, r2_next = core2.shape
         
         if k == 0:
-            # Первое ядро: [G_1^A[i], G_1^B[i]]
             new_r_prev = 1
             new_r_next = r1_next + r2_next
             
             new_data = []
             for i in range(n_k):
+                # Берем срез core1[0, i, :]
                 for j in range(r1_next):
                     new_data.append(core1.data[0 * n_k * r1_next + i * r1_next + j])
+                # Берем срез core2[0, i, :]
                 for j in range(r2_next):
                     new_data.append(core2.data[0 * n_k * r2_next + i * r2_next + j])
             
             new_core = DenseTensor([new_r_prev, n_k, new_r_next], new_data)
             
         elif k == d - 1:
-            # Последнее ядро: [G_d^A[i], G_d^B[i]]^T
             new_r_prev = r1_prev + r2_prev
             new_r_next = 1
             
             new_data = []
             for i in range(n_k):
+                # Берем срез core1[:, i, 0]
                 for j in range(r1_prev):
-                    new_data.append(core1.data[j * n_k * 1 + i * 1 + 0])
+                    new_data.append(core1.data[j * n_k * r1_next + i * r1_next + 0])
+                # Берем срез core2[:, i, 0]
                 for j in range(r2_prev):
-                    new_data.append(core2.data[j * n_k * 1 + i * 1 + 0])
+                    new_data.append(core2.data[j * n_k * r2_next + i * r2_next + 0])
             
             new_core = DenseTensor([new_r_prev, n_k, new_r_next], new_data)
             
         else:
-            # Промежуточные ядра: блочно-диагональные
+            
             new_r_prev = r1_prev + r2_prev
             new_r_next = r1_next + r2_next
             
@@ -71,8 +73,10 @@ def tt_add(
                 for p in range(new_r_prev):
                     for q in range(new_r_next):
                         if p < r1_prev and q < r1_next:
+                            # Блок A
                             val = core1.data[p * n_k * r1_next + i * r1_next + q]
                         elif p >= r1_prev and q >= r1_next:
+                            # Блок B
                             p2 = p - r1_prev
                             q2 = q - r1_next
                             val = core2.data[p2 * n_k * r2_next + i * r2_next + q2]
@@ -86,7 +90,6 @@ def tt_add(
     
     return TTTensor(new_cores)
 
-
 def tt_scalar_mul(
     tt: TTTensor,
     alpha: Number,
@@ -99,6 +102,7 @@ def tt_scalar_mul(
     cores = [core.copy() for core in tt.cores]
     core0 = cores[0]
     r_prev, n_0, r_next = core0.shape
+    
     new_data = [alpha * x for x in core0.data]
     cores[0] = DenseTensor([r_prev, n_0, r_next], new_data)
     
@@ -133,8 +137,11 @@ def tt_hadamard(
         for i in range(n_k):
             for p1 in range(r1_prev):
                 for p2 in range(r2_prev):
+                   
+                    p = p1 * r2_prev + p2
                     for q1 in range(r1_next):
                         for q2 in range(r2_next):
+                            q = q1 * r2_next + q2
                             val = (core1.data[p1 * n_k * r1_next + i * r1_next + q1] *
                                    core2.data[p2 * n_k * r2_next + i * r2_next + q2])
                             new_data.append(val)
@@ -143,7 +150,6 @@ def tt_hadamard(
         new_cores.append(new_core)
     
     return TTTensor(new_cores)
-
 
 def tt_dot(
     tt1: TTTensor,
