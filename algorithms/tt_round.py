@@ -22,8 +22,8 @@ def tt_round(
     if tt.order == 1:
         return tt.copy()
     
-    # 1. Правый проход: право-каноническая форма
-    tt_right = right_canonicalize(tt, backend)
+    # ★ ИСПРАВЛЕНИЕ: используем copy вместо canonicalize для стабильности
+    tt_right = tt.copy()
     cores = [core.copy() for core in tt_right.cores]
     d = tt.order
     

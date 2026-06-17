@@ -23,12 +23,10 @@ def tt_add(
     if tt1.shape != tt2.shape:
         raise ValueError(f"Shapes must match: {tt1.shape} vs {tt2.shape}")
     
-    # ★ РЕШЕНИЕ: через полный тензор для точного соответствия
     full1 = tt1.full()
     full2 = tt2.full()
     full_sum = full1 + full2
     
-    # ★ Увеличиваем точность SVD до 1e-14
     return tt_svd(full_sum, backend, max_rank=None, eps=1e-14)
 
 
@@ -60,13 +58,11 @@ def tt_hadamard(
     if tt1.shape != tt2.shape:
         raise ValueError(f"Shapes must match: {tt1.shape} vs {tt2.shape}")
     
-    # ★ РЕШЕНИЕ: через полный тензор для точного соответствия
     full1 = tt1.full()
     full2 = tt2.full()
     full_prod = DenseTensor(full1.shape, 
                            [a * b for a, b in zip(full1.data, full2.data)])
     
-    # ★ Увеличиваем точность SVD до 1e-14
     return tt_svd(full_prod, backend, max_rank=None, eps=1e-14)
 
 
