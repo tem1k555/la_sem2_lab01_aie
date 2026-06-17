@@ -1,6 +1,5 @@
 """
 Приведение TT-тензора в канонические формы.
-ВЕРСИЯ: простая канонизация через SVD с сохранением формы
 """
 
 from core.tt_tensor import TTTensor
@@ -8,119 +7,81 @@ from core.dense_tensor import DenseTensor
 from processor_type.interface import BackendInterface
 
 
+def _multiply_diag_matrix(
+    diag_vec: DenseTensor,
+    matrix: DenseTensor,
+    rank: int,
+    backend: BackendInterface
+) -> DenseTensor:
+    n = backend.shape(matrix)[1]
+    res = backend.zeros((rank, n))
+    for i in range(rank):
+        d = backend.get_element(diag_vec, (i,))
+        for j in range(n):
+            val = backend.get_element(matrix, (i, j))
+            backend.set_element(res, (i, j), d * val)
+    return res
+
+
 def left_canonicalize(tt: TTTensor, backend: BackendInterface) -> TTTensor:
-    """
-    Лево-каноническая форма.
-    Все ядра кроме последнего лево-ортогональны.
-    """
     if tt.order == 1:
         return tt.copy()
     
-    cores = [core.copy() for core in tt.cores]
-    d = tt.order
+    cores = [backend.copy(core) for core in tt.cores]
+    d = len(cores)
     
     for k in range(d - 1):
-        core = cores[k]
-        r_prev, n_k, r_next = core.shape
+        r_k, n_k, r_kp1 = backend.shape(cores[k])
+        G_unf = backend.reshape(cores[k], (r_k * n_k, r_kp1))
         
-        if r_prev * n_k == 0 or r_next == 0:
-            continue
-        
-        G = core.reshape([r_prev * n_k, r_next])
-        
-        try:
-            U, S, Vt = backend.svd(G, full_matrices=False)
+        m, n = backend.shape(G_unf)
+        if m >= n:
+            Q, R = backend.qr(G_unf)
+        else:
+            U, S, Vt = backend.svd(G_unf, full_matrices=False)
             Q = U
-        except Exception:
-            Q, _ = backend.qr(G)
+            R = _multiply_diag_matrix(S, Vt, backend.shape(S)[0], backend)
         
-        # Обрезаем или дополняем Q до нужного размера
-        if Q.shape[1] != r_next:
-            if Q.shape[1] < r_next:
-                new_data = []
-                for i in range(Q.shape[0]):
-                    for j in range(r_next):
-                        new_data.append(Q.data[i * Q.shape[1] + j] if j < Q.shape[1] else 0.0)
-                Q = DenseTensor([Q.shape[0], r_next], new_data)
-            else:
-                new_data = []
-                for i in range(Q.shape[0]):
-                    for j in range(r_next):
-                        new_data.append(Q.data[i * Q.shape[1] + j])
-                Q = DenseTensor([Q.shape[0], r_next], new_data)
+        new_r = backend.shape(Q)[1]
+        cores[k] = backend.reshape(Q, (r_k, n_k, new_r))
         
-        Q_reshaped = Q.reshape([r_prev, n_k, r_next])
-        cores[k] = Q_reshaped
+        r_next, n_next, r_nextp1 = backend.shape(cores[k + 1])
+        G_next_unf = backend.reshape(cores[k + 1], (r_next, n_next * r_nextp1))
+        cores[k + 1] = backend.reshape(backend.matmul(R, G_next_unf), (new_r, n_next, r_nextp1))
     
     return TTTensor(cores)
 
 
 def right_canonicalize(tt: TTTensor, backend: BackendInterface) -> TTTensor:
-    """
-    Право-каноническая форма.
-    Все ядра кроме первого право-ортогональны.
-    """
     if tt.order == 1:
         return tt.copy()
     
-    cores = [core.copy() for core in tt.cores]
-    d = tt.order
+    cores = [backend.copy(core) for core in tt.cores]
+    d = len(cores)
     
     for k in range(d - 1, 0, -1):
-        core = cores[k]
-        r_prev, n_k, r_next = core.shape
+        r_k, n_k, r_kp1 = backend.shape(cores[k])
+        G_unf = backend.reshape(cores[k], (r_k, n_k * r_kp1))
         
-        if r_prev == 0 or n_k * r_next == 0:
-            continue
+        G_unf_T = backend.transpose(G_unf)
+        m, n = backend.shape(G_unf_T)
         
-        G = core.reshape([r_prev, n_k * r_next])
+        if m >= n:
+            Q_T, R_T = backend.qr(G_unf_T)
+            Q = backend.transpose(Q_T)
+            R = backend.transpose(R_T)
+        else:
+            U, S, Vt = backend.svd(G_unf_T, full_matrices=False)
+            Q_T = U
+            R_T = _multiply_diag_matrix(S, Vt, backend.shape(S)[0], backend)
+            Q = backend.transpose(Q_T)
+            R = backend.transpose(R_T)
         
-        try:
-            Gt_data = []
-            for j in range(r_prev):
-                for i in range(n_k * r_next):
-                    Gt_data.append(G.data[i * r_prev + j])
-            Gt = DenseTensor([n_k * r_next, r_prev], Gt_data)
-            
-            U, S, Vt = backend.svd(Gt, full_matrices=False)
-            
-            Q_data = []
-            for i in range(r_prev):
-                for j in range(n_k * r_next):
-                    Q_data.append(U.data[j * U.shape[1] + i] if j < U.shape[0] and i < U.shape[1] else 0.0)
-            Q = DenseTensor([r_prev, n_k * r_next], Q_data)
-            
-        except Exception:
-            Gt_data = []
-            for j in range(r_prev):
-                for i in range(n_k * r_next):
-                    Gt_data.append(G.data[i * r_prev + j])
-            Gt = DenseTensor([n_k * r_next, r_prev], Gt_data)
-            
-            Q_t, _ = backend.qr(Gt)
-            
-            Q_data = []
-            for i in range(r_prev):
-                for j in range(n_k * r_next):
-                    Q_data.append(Q_t.data[j * Q_t.shape[1] + i] if j < Q_t.shape[0] and i < Q_t.shape[1] else 0.0)
-            Q = DenseTensor([r_prev, n_k * r_next], Q_data)
+        new_r = backend.shape(Q)[0]
+        cores[k] = backend.reshape(Q, (new_r, n_k, r_kp1))
         
-        # Обрезаем или дополняем Q до нужного размера
-        if Q.shape[1] != n_k * r_next:
-            if Q.shape[1] < n_k * r_next:
-                new_data = []
-                for i in range(Q.shape[0]):
-                    for j in range(n_k * r_next):
-                        new_data.append(Q.data[i * Q.shape[1] + j] if j < Q.shape[1] else 0.0)
-                Q = DenseTensor([Q.shape[0], n_k * r_next], new_data)
-            else:
-                new_data = []
-                for i in range(Q.shape[0]):
-                    for j in range(n_k * r_next):
-                        new_data.append(Q.data[i * Q.shape[1] + j])
-                Q = DenseTensor([Q.shape[0], n_k * r_next], new_data)
-        
-        Q_reshaped = Q.reshape([r_prev, n_k, r_next])
-        cores[k] = Q_reshaped
+        r_prev, n_prev, r_p = backend.shape(cores[k - 1])
+        G_prev_unf = backend.reshape(cores[k - 1], (r_prev * n_prev, r_p))
+        cores[k - 1] = backend.reshape(backend.matmul(G_prev_unf, R), (r_prev, n_prev, new_r))
     
     return TTTensor(cores)

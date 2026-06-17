@@ -1,6 +1,5 @@
 """
 Базовые операции с TT-тензорами.
-ВЕРСИЯ: через полный тензор с повышенной точностью
 """
 
 import math
@@ -19,7 +18,6 @@ def tt_add(
     tt2: TTTensor,
     backend: BackendInterface
 ) -> TTTensor:
-    """Поэлементное сложение двух TT-тензоров."""
     if tt1.shape != tt2.shape:
         raise ValueError(f"Shapes must match: {tt1.shape} vs {tt2.shape}")
     
@@ -35,16 +33,11 @@ def tt_scalar_mul(
     alpha: Number,
     backend: BackendInterface
 ) -> TTTensor:
-    """Умножение TT-тензора на скаляр."""
     if alpha == 1.0:
         return tt.copy()
     
-    cores = [core.copy() for core in tt.cores]
-    core0 = cores[0]
-    r_prev, n_0, r_next = core0.shape
-    
-    new_data = [alpha * x for x in core0.data]
-    cores[0] = DenseTensor([r_prev, n_0, r_next], new_data)
+    cores = [backend.copy(core) for core in tt.cores]
+    cores[0] = backend.scale(cores[0], alpha)
     
     return TTTensor(cores)
 
@@ -54,7 +47,6 @@ def tt_hadamard(
     tt2: TTTensor,
     backend: BackendInterface
 ) -> TTTensor:
-    """Поэлементное произведение (Адамара)."""
     if tt1.shape != tt2.shape:
         raise ValueError(f"Shapes must match: {tt1.shape} vs {tt2.shape}")
     
@@ -71,60 +63,41 @@ def tt_dot(
     tt2: TTTensor,
     backend: BackendInterface
 ) -> Number:
-    """Скалярное произведение двух TT-тензоров."""
     if tt1.shape != tt2.shape:
         raise ValueError(f"Shapes must match: {tt1.shape} vs {tt2.shape}")
     
     d = tt1.order
-    cores1 = tt1.cores
-    cores2 = tt2.cores
+    Z = backend.ones((1, 1))
     
-    core1_0 = cores1[0]
-    core2_0 = cores2[0]
-    r1_1 = core1_0.shape[2]
-    r2_1 = core2_0.shape[2]
-    n_0 = core1_0.shape[1]
-    
-    Z_data = []
-    for i in range(r1_1):
-        for j in range(r2_1):
-            val = 0.0
-            for idx in range(n_0):
-                val += (core1_0.data[0 * n_0 * r1_1 + idx * r1_1 + i] *
-                        core2_0.data[0 * n_0 * r2_1 + idx * r2_1 + j])
-            Z_data.append(val)
-    
-    Z = DenseTensor([r1_1, r2_1], Z_data)
-    
-    for k in range(1, d):
-        core1 = cores1[k]
-        core2 = cores2[k]
-        r1_prev, n_k, r1_next = core1.shape
-        r2_prev, _, r2_next = core2.shape
+    for k in range(d):
+        rA_in, n, rA_out = backend.shape(tt1.cores[k])
+        rB_in, _, rB_out = backend.shape(tt2.cores[k])
+        Z_next = backend.zeros((rA_out, rB_out))
         
-        new_Z_data = []
-        for i in range(r1_next):
-            for j in range(r2_next):
-                val = 0.0
-                for idx in range(n_k):
-                    for p in range(r1_prev):
-                        for q in range(r2_prev):
-                            val += (core1.data[p * n_k * r1_next + idx * r1_next + i] *
-                                    Z.data[p * r2_prev + q] *
-                                    core2.data[q * n_k * r2_next + idx * r2_next + j])
-                new_Z_data.append(val)
+        for i in range(n):
+            GA_i = backend.zeros((rA_in, rA_out))
+            for r1 in range(rA_in):
+                for r2 in range(rA_out):
+                    backend.set_element(GA_i, (r1, r2), backend.get_element(tt1.cores[k], (r1, i, r2)))
+            
+            GB_i = backend.zeros((rB_in, rB_out))
+            for r1 in range(rB_in):
+                for r2 in range(rB_out):
+                    backend.set_element(GB_i, (r1, r2), backend.get_element(tt2.cores[k], (r1, i, r2)))
+            
+            term = backend.matmul(backend.transpose(GA_i), backend.matmul(Z, GB_i))
+            Z_next = backend.add(Z_next, term)
         
-        Z = DenseTensor([r1_next, r2_next], new_Z_data)
+        Z = Z_next
     
-    return Z.data[0]
+    return backend.get_element(Z, (0, 0))
 
 
 def tt_norm(
     tt: TTTensor,
     backend: BackendInterface
 ) -> float:
-    """Фробениусова норма TT-тензора."""
-    return math.sqrt(tt_dot(tt, tt, backend))
+    return math.sqrt(max(0.0, tt_dot(tt, tt, backend)))
 
 
 def tt_diff_norm(
@@ -132,17 +105,7 @@ def tt_diff_norm(
     tt2: TTTensor,
     backend: BackendInterface
 ) -> float:
-    """Норма разности: ||tt1 - tt2||_F."""
-    if tt1.shape != tt2.shape:
-        raise ValueError(f"Shapes must match: {tt1.shape} vs {tt2.shape}")
-    
-    norm1_sq = tt_norm(tt1, backend) ** 2
-    norm2_sq = tt_norm(tt2, backend) ** 2
+    n1 = tt_dot(tt1, tt1, backend)
+    n2 = tt_dot(tt2, tt2, backend)
     dot = tt_dot(tt1, tt2, backend)
-    
-    diff_sq = norm1_sq + norm2_sq - 2 * dot
-    
-    if diff_sq < 0 and diff_sq > -1e-10:
-        diff_sq = 0.0
-    
-    return math.sqrt(diff_sq)
+    return math.sqrt(max(0.0, n1 + n2 - 2.0 * dot))

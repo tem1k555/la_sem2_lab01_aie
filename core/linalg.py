@@ -1,5 +1,3 @@
-# core/linalg.py
-
 """
 Базовая линейная алгебра для DenseTensor.
 
@@ -147,39 +145,10 @@ def qr(matrix: DenseTensor) -> tuple[DenseTensor, DenseTensor]:
     m: int
     n: int
     m, n = matrix.shape
-    
-    # ★ ИСПРАВЛЕНИЕ: если m < n, делаем QR на транспонированной матрице
     if m < n:
-        # A^T = Q_t @ R_t, тогда A = R_t^T @ Q_t^T
-        Gt_data = []
-        for j in range(m):
-            for i in range(n):
-                Gt_data.append(matrix.data[i * m + j])
-        Gt = DenseTensor([n, m], Gt_data)
-        
-        Q_t, R_t = qr(Gt)
-        
-        # Q = R_t^T (первые m столбцов)
-        Q_data = []
-        for i in range(m):
-            for j in range(n):
-                if i < R_t.shape[0] and j < R_t.shape[1]:
-                    Q_data.append(R_t.data[j * R_t.shape[1] + i])
-                else:
-                    Q_data.append(0.0)
-        Q = DenseTensor([m, n], Q_data)
-        
-        # R = Q_t^T (первые m строк)
-        R_data = []
-        for i in range(m):
-            for j in range(m):
-                if j < Q_t.shape[0] and i < Q_t.shape[1]:
-                    R_data.append(Q_t.data[j * Q_t.shape[1] + i])
-                else:
-                    R_data.append(0.0)
-        R = DenseTensor([m, m], R_data)
-        
-        return Q, R
+        raise ValueError(
+            f"Для тонкого QR нужно m >= n, получено ({m}, {n})"
+        )
 
     # Извлекаем столбцы матрицы как списки
     cols: list[list[float]] = []
@@ -234,6 +203,7 @@ def qr(matrix: DenseTensor) -> tuple[DenseTensor, DenseTensor]:
             R_tensor[i, j] = R[i][j]
 
     return Q, R_tensor
+
 
 # ────────────────────────────────────────────
 # SVD-разложение
