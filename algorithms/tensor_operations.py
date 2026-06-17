@@ -7,7 +7,6 @@ import math
 from core.tt_tensor import TTTensor
 from core.dense_tensor import DenseTensor
 from processor_type.interface import BackendInterface
-from algorithms.tt_svd import tt_svd
 
 
 Number = int | float
@@ -19,15 +18,45 @@ def tt_add(
     backend: BackendInterface
 ) -> TTTensor:
     """Поэлементное сложение двух TT-тензоров."""
-    if tt1.shape != tt2.shape:
-        raise ValueError(f"Shapes must match: {tt1.shape} vs {tt2.shape}")
-    
-    full1 = tt1.full()
-    full2 = tt2.full()
-    full_sum = full1 + full2
-    
-    # ★ Максимальная точность
-    return tt_svd(full_sum, backend, max_rank=None, eps=1e-20)
+    if tt1.order == 1:
+        data = [x + y for x, y in zip(tt1.cores[0].data, tt2.cores[0].data)]
+        return TTTensor([DenseTensor(tt1.cores[0].shape, data)])
+
+    cores = []
+    for k in range(tt1.order):
+        a = tt1.cores[k]
+        b = tt2.cores[k]
+        a_l, n, a_r = a.shape
+        b_l, _, b_r = b.shape
+
+        if k == 0:
+            core = DenseTensor.zeros((1, n, a_r + b_r))
+            for i in range(n):
+                for ar in range(a_r):
+                    core[0, i, ar] = a[0, i, ar]
+                for br in range(b_r):
+                    core[0, i, a_r + br] = b[0, i, br]
+        elif k == tt1.order - 1:
+            core = DenseTensor.zeros((a_l + b_l, n, 1))
+            for i in range(n):
+                for al in range(a_l):
+                    core[al, i, 0] = a[al, i, 0]
+                for bl in range(b_l):
+                    core[a_l + bl, i, 0] = b[bl, i, 0]
+        else:
+            core = DenseTensor.zeros((a_l + b_l, n, a_r + b_r))
+            for al in range(a_l):
+                for i in range(n):
+                    for ar in range(a_r):
+                        core[al, i, ar] = a[al, i, ar]
+            for bl in range(b_l):
+                for i in range(n):
+                    for br in range(b_r):
+                        core[a_l + bl, i, a_r + br] = b[bl, i, br]
+
+        cores.append(core)
+
+    return TTTensor(cores)
 
 
 def tt_scalar_mul(
@@ -36,12 +65,8 @@ def tt_scalar_mul(
     backend: BackendInterface
 ) -> TTTensor:
     """Умножение TT-тензора на скаляр."""
-    if alpha == 1.0:
-        return tt.copy()
-    
-    cores = [backend.copy(core) for core in tt.cores]
+    cores = [core.copy() for core in tt.cores]
     cores[0] = backend.scale(cores[0], alpha)
-    
     return TTTensor(cores)
 
 
@@ -51,16 +76,26 @@ def tt_hadamard(
     backend: BackendInterface
 ) -> TTTensor:
     """Поэлементное произведение (Адамара) двух TT-тензоров."""
-    if tt1.shape != tt2.shape:
-        raise ValueError(f"Shapes must match: {tt1.shape} vs {tt2.shape}")
-    
-    full1 = tt1.full()
-    full2 = tt2.full()
-    full_prod = DenseTensor(full1.shape, 
-                           [a * b for a, b in zip(full1.data, full2.data)])
-    
-    # ★ Максимальная точность
-    return tt_svd(full_prod, backend, max_rank=None, eps=1e-20)
+    cores = []
+    for k in range(tt1.order):
+        a = tt1.cores[k]
+        b = tt2.cores[k]
+        a_l, n, a_r = a.shape
+        b_l, _, b_r = b.shape
+        core = DenseTensor.zeros((a_l * b_l, n, a_r * b_r))
+
+        for al in range(a_l):
+            for bl in range(b_l):
+                left = al * b_l + bl
+                for i in range(n):
+                    for ar in range(a_r):
+                        for br in range(b_r):
+                            right = ar * b_r + br
+                            core[left, i, right] = a[al, i, ar] * b[bl, i, br]
+
+        cores.append(core)
+
+    return TTTensor(cores)
 
 
 def tt_dot(
@@ -69,34 +104,27 @@ def tt_dot(
     backend: BackendInterface
 ) -> Number:
     """Скалярное произведение двух TT-тензоров."""
-    if tt1.shape != tt2.shape:
-        raise ValueError(f"Shapes must match: {tt1.shape} vs {tt2.shape}")
-    
-    d = tt1.order
-    Z = backend.ones((1, 1))
-    
-    for k in range(d):
-        rA_in, n, rA_out = backend.shape(tt1.cores[k])
-        rB_in, _, rB_out = backend.shape(tt2.cores[k])
-        Z_next = backend.zeros((rA_out, rB_out))
-        
-        for i in range(n):
-            GA_i = backend.zeros((rA_in, rA_out))
-            for r1 in range(rA_in):
-                for r2 in range(rA_out):
-                    backend.set_element(GA_i, (r1, r2), backend.get_element(tt1.cores[k], (r1, i, r2)))
-            
-            GB_i = backend.zeros((rB_in, rB_out))
-            for r1 in range(rB_in):
-                for r2 in range(rB_out):
-                    backend.set_element(GB_i, (r1, r2), backend.get_element(tt2.cores[k], (r1, i, r2)))
-            
-            term = backend.matmul(backend.transpose(GA_i), backend.matmul(Z, GB_i))
-            Z_next = backend.add(Z_next, term)
-        
-        Z = Z_next
-    
-    return backend.get_element(Z, (0, 0))
+    env = [[1.0]]
+
+    for k in range(tt1.order):
+        a = tt1.cores[k]
+        b = tt2.cores[k]
+        a_l, n, a_r = a.shape
+        b_l, _, b_r = b.shape
+        new_env = [[0.0] * b_r for _ in range(a_r)]
+
+        for al in range(a_l):
+            for bl in range(b_l):
+                coeff = env[al][bl]
+                for i in range(n):
+                    for ar in range(a_r):
+                        aval = a[al, i, ar]
+                        for br in range(b_r):
+                            new_env[ar][br] += coeff * aval * b[bl, i, br]
+
+        env = new_env
+
+    return env[0][0]
 
 
 def tt_norm(
@@ -104,7 +132,7 @@ def tt_norm(
     backend: BackendInterface
 ) -> float:
     """Фробениусова норма TT-тензора."""
-    return math.sqrt(max(0.0, tt_dot(tt, tt, backend)))
+    return math.sqrt(max(tt_dot(tt, tt, backend), 0.0))
 
 
 def tt_diff_norm(
@@ -113,7 +141,5 @@ def tt_diff_norm(
     backend: BackendInterface
 ) -> float:
     """Норма разности двух TT-тензоров."""
-    n1 = tt_dot(tt1, tt1, backend)
-    n2 = tt_dot(tt2, tt2, backend)
-    dot = tt_dot(tt1, tt2, backend)
-    return math.sqrt(max(0.0, n1 + n2 - 2.0 * dot))
+    value = tt_dot(tt1, tt1, backend) + tt_dot(tt2, tt2, backend) - 2 * tt_dot(tt1, tt2, backend)
+    return math.sqrt(max(value, 0.0))

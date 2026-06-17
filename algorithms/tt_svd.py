@@ -14,30 +14,31 @@ def _compute_truncated_rank(
     delta: float,
     max_rank: int | None
 ) -> int:
-    k = S.shape[0]
-    r = k
-    
-    if S.data[0] == 0:
+    """
+    Возвращает ранг усечения по сингулярным значениям.
+    """
+    if S.size == 0:
         return 1
-    
-    max_val = max(1e-12, 1e-8 * S.data[0])
-    for j in range(k):
-        if S.data[j] <= max_val:
-            r = j
+
+    threshold = max(10 ** -12, abs(S.data[0]) * 10 ** -8)
+    rank = 0
+    for value in S.data:
+        if abs(value) > threshold:
+            rank += 1
+
+    if rank == 0:
+        rank = 1
+
+    r = rank
+    for curr_rank in range(1, rank + 1):
+        tail = sum(S.data[i] ** 2 for i in range(curr_rank, rank))
+        if tail <= delta ** 2:
+            r = curr_rank
             break
-    
-    if delta > 0:
-        s_sum = 0.0
-        for j in range(r - 1, -1, -1):
-            s_sum += S.data[j] ** 2
-            if s_sum > delta ** 2:
-                break
-            r = j
-    
-    r = max(1, r)
+
     if max_rank is not None:
         r = min(r, max_rank)
-    return r
+    return max(1, r)
 
 
 def _truncate_columns(
@@ -45,12 +46,15 @@ def _truncate_columns(
     rank: int,
     backend: BackendInterface
 ) -> DenseTensor:
-    m = backend.shape(matrix)[0]
-    res = backend.zeros((m, rank))
-    for i in range(m):
+    """
+    Возвращает матрицу, составленную из первых rank столбцов исходной матрицы.
+    """
+    rows, cols = matrix.shape
+    data = []
+    for i in range(rows):
         for j in range(rank):
-            backend.set_element(res, (i, j), backend.get_element(matrix, (i, j)))
-    return res
+            data.append(matrix.data[i * cols + j])
+    return DenseTensor((rows, rank), data)
 
 
 def _truncate_rows(
@@ -58,12 +62,11 @@ def _truncate_rows(
     rank: int,
     backend: BackendInterface
 ) -> DenseTensor:
-    n = backend.shape(matrix)[1]
-    res = backend.zeros((rank, n))
-    for i in range(rank):
-        for j in range(n):
-            backend.set_element(res, (i, j), backend.get_element(matrix, (i, j)))
-    return res
+    """
+    Возвращает матрицу, составленную из первых rank строк исходной матрицы.
+    """
+    cols = matrix.shape[1]
+    return DenseTensor((rank, cols), matrix.data[:rank * cols])
 
 
 def _truncate_vector(
@@ -71,10 +74,10 @@ def _truncate_vector(
     rank: int,
     backend: BackendInterface
 ) -> DenseTensor:
-    res = backend.zeros((rank,))
-    for i in range(rank):
-        backend.set_element(res, (i,), backend.get_element(vector, (i,)))
-    return res
+    """
+    Возвращает вектор, состоящий из первых rank элементов исходного вектора.
+    """
+    return DenseTensor((rank,), vector.data[:rank])
 
 
 def _multiply_diag_matrix(
@@ -83,64 +86,41 @@ def _multiply_diag_matrix(
     rank: int,
     backend: BackendInterface
 ) -> DenseTensor:
-    n = backend.shape(matrix)[1]
-    res = backend.zeros((rank, n))
-    for i in range(rank):
-        d = backend.get_element(diag_vec, (i,))
-        for j in range(n):
-            val = backend.get_element(matrix, (i, j))
-            backend.set_element(res, (i, j), d * val)
-    return res
+    """
+    Возвращает произведение диагональной матрицы на обычную матрицу.
+    """
+    return backend.matmul(backend.diag(diag_vec), matrix)
 
 
 def tt_svd(
     tensor: DenseTensor,
     backend: BackendInterface,
     max_rank: int | None = None,
-    eps: float = 1e-20  # ← Максимальная точность
+    eps: float = 1e-10
 ) -> TTTensor:
     """
-    Преобразует плотный тензор в TT-формат с помощью SVD.
-    
-    Args:
-        tensor: исходный плотный тензор
-        backend: бэкенд для операций
-        max_rank: максимальный TT-ранг (None = без ограничения)
-        eps: относительная точность усечения (по умолчанию 1e-20)
-    
-    Returns:
-        TTTensor: тензор в TT-формате
+    Возвращает TTTensor — тензор в TT-формате.
     """
-    C = backend.copy(tensor)
-    d = len(tensor.shape)
-    n = tensor.shape
-    
-    if d == 1:
-        G1 = backend.reshape(C, (1, n[0], 1))
-        return TTTensor([G1])
-    
-    norm_A = backend.norm(tensor)
-    delta = (eps / math.sqrt(d - 1)) * norm_A if norm_A > 1e-30 else 0.0
-    
+    if tensor.ndim == 1:
+        return TTTensor([tensor.reshape((1, tensor.shape[0], 1))])
+
     cores = []
-    r = [1] * (d + 1)
-
-    for k in range(1, d):
-        C_k = backend.reshape(C, (r[k - 1] * n[k - 1], backend.size(C) // (r[k - 1] * n[k - 1])))
-        U, S, Vt = backend.svd(C_k, full_matrices=False)
-        
-        r_k = _compute_truncated_rank(S, delta, max_rank)
-        r[k] = r_k
-        
-        U_trunc = _truncate_columns(U, r_k, backend)
-        G_k = backend.reshape(U_trunc, (r[k - 1], n[k - 1], r[k]))
-        cores.append(G_k)
-        
-        S_trunc = _truncate_vector(S, r_k, backend)
-        Vt_trunc = _truncate_rows(Vt, r_k, backend)
-        C = _multiply_diag_matrix(S_trunc, Vt_trunc, r_k, backend)
-
-    G_d = backend.reshape(C, (r[d - 1], n[d - 1], 1))
-    cores.append(G_d)
+    prev_r = 1
+    C = tensor.copy()
+    frob_norm = tensor.norm()
+    delta = eps * frob_norm / math.sqrt(tensor.ndim - 1) if frob_norm > 10 ** -30 else 0
     
+    for k in range(tensor.ndim - 1):
+        rows = prev_r * tensor.shape[k]
+        C = C.reshape((rows, C.size // rows))
+        U, singular_values, V = backend.svd(C)
+        r = _compute_truncated_rank(singular_values, delta, max_rank)
+        U = _truncate_columns(U, r, backend)
+        cores.append(U.reshape((prev_r, tensor.shape[k], r)))
+        singular_values = _truncate_vector(singular_values, r, backend)
+        V = _truncate_rows(V, r, backend)
+        C = _multiply_diag_matrix(singular_values, V, r, backend)
+        prev_r = r
+        
+    cores.append(C.reshape((prev_r, tensor.shape[-1], 1)))
     return TTTensor(cores)
